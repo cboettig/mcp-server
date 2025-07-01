@@ -38,8 +38,13 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+*.wal
+*.db-wal
+*.sqlite-wal
 data/*.db
 data/*.duckdb
+data/*.wal
+data/*.db-wal
 
 # Logs
 *.log
