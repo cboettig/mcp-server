@@ -35,6 +35,26 @@ docker build -t data-query-server .
 docker run -v ./data:/app/data data-query-server
 ```
 
+### Using Pre-built Images
+
+Docker images are automatically built and published to GitHub Container Registry on every release:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/cboettig/mcp-server:latest
+
+# Run with the pre-built image
+docker run --rm ghcr.io/cboettig/mcp-server:latest
+
+# Or use with docker-compose by updating the image reference
+# image: ghcr.io/cboettig/mcp-server:latest
+```
+
+Available tags:
+- `latest`: Latest stable release from main branch
+- `v1.0.0`: Specific version tags
+- `main`: Latest from main branch
+
 ## Available Tools
 
 The MCP server provides these tools for LLMs:
