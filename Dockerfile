@@ -16,15 +16,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # Copy project files
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
+COPY data/ ./data/
+COPY datasets/ ./datasets/
 
 # Install dependencies
 RUN uv sync --frozen --no-dev
-
-# Create data directory
-RUN mkdir -p data
 
 # Expose port (if needed for future HTTP interface)
 EXPOSE 8000
 
 # Set the default command to run the MCP server
-CMD [".venv/bin/python", "-m", "data_query_server"]
+CMD ["uv", "run", "python", "-m", "data_query_server"]
