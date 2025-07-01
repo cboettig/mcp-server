@@ -1,3 +1,4 @@
+import argparse
 import os
 from typing import Any
 
@@ -6,7 +7,7 @@ import mcp.server.stdio
 import mcp.types as types
 import numpy as np
 import pandas as pd
-from mcp.server import NotificationOptions, Server
+from mcp.server import FastMCP, NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from pydantic import AnyUrl
 
@@ -310,6 +311,37 @@ async def handle_call_tool(
 
 async def main():
     """Main entry point for the server"""
+    parser = argparse.ArgumentParser(description="Data Query MCP Server")
+    parser.add_argument(
+        "--transport", 
+        choices=["stdio", "sse"], 
+        default="stdio",
+        help="Transport method (stdio for pipe communication, sse for HTTP)"
+    )
+    parser.add_argument(
+        "--host", 
+        default="0.0.0.0", 
+        help="Host to bind to (only for SSE transport)"
+    )
+    parser.add_argument(
+        "--port", 
+        type=int, 
+        default=8000, 
+        help="Port to bind to (only for SSE transport)"
+    )
+    
+    args = parser.parse_args()
+    
+    if args.transport == "sse":
+        # Use FastMCP for HTTP/SSE transport
+        await run_sse_server(args.host, args.port)
+    else:
+        # Use traditional stdio transport
+        await run_stdio_server()
+
+
+async def run_stdio_server():
+    """Run the server using stdio transport"""
     # Initialize the data server
     await data_server.initialize()
 
@@ -327,3 +359,228 @@ async def main():
                 ),
             ),
         )
+
+
+async def run_sse_server(host: str, port: int):
+    """Run the server using SSE transport over HTTP"""
+    # Initialize the data server
+    await data_server.initialize()
+    
+    print(f"Starting MCP server on http://{host}:{port}")
+    print(f"SSE endpoint will be available at: http://{host}:{port}/sse")
+    print(f"Message endpoint will be available at: http://{host}:{port}/messages")
+    
+    # Import the required modules for manual SSE setup
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.responses import Response, JSONResponse
+    from starlette.endpoints import HTTPEndpoint
+    import json
+    import uuid
+    
+    class SSEEndpoint(HTTPEndpoint):
+        async def get(self, request):
+            # SSE endpoint for MCP connections
+            return Response(
+                "event: connected\ndata: MCP server ready\n\n",
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                }
+            )
+    
+    class MessageEndpoint(HTTPEndpoint):
+        async def post(self, request):
+            # MCP message endpoint that handles JSON-RPC requests
+            try:
+                data = await request.json()
+                method = data.get("method")
+                params = data.get("params", {})
+                request_id = data.get("id")
+                
+                # Handle different MCP methods
+                if method == "initialize":
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "capabilities": {
+                                "tools": {"listChanged": False},
+                                "resources": {"subscribe": False, "listChanged": False}
+                            },
+                            "serverInfo": {
+                                "name": "data-query-server",
+                                "version": "0.1.0"
+                            }
+                        }
+                    }
+                
+                elif method == "tools/list":
+                    tools = await handle_list_tools()
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "tools": [tool.model_dump() for tool in tools]
+                        }
+                    }
+                
+                elif method == "tools/call":
+                    tool_name = params.get("name")
+                    arguments = params.get("arguments", {})
+                    
+                    try:
+                        result = await handle_call_tool(tool_name, arguments)
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [content.model_dump() for content in result]
+                            }
+                        }
+                    except Exception as e:
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32603,
+                                "message": str(e)
+                            }
+                        }
+                
+                elif method == "resources/list":
+                    resources = await handle_list_resources()
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "resources": [
+                                {
+                                    "uri": str(resource.uri),
+                                    "name": resource.name,
+                                    "description": resource.description,
+                                    "mimeType": resource.mimeType
+                                } for resource in resources
+                            ]
+                        }
+                    }
+                
+                elif method == "resources/read":
+                    uri = params.get("uri")
+                    try:
+                        from pydantic import AnyUrl
+                        content = await handle_read_resource(AnyUrl(uri))
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "contents": [{
+                                    "uri": uri,
+                                    "mimeType": "application/json",
+                                    "text": content
+                                }]
+                            }
+                        }
+                    except Exception as e:
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32603,
+                                "message": str(e)
+                            }
+                        }
+                
+                else:
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {
+                            "code": -32601,
+                            "message": f"Method not found: {method}"
+                        }
+                    }
+                
+                return JSONResponse(response)
+                
+            except Exception as e:
+                return JSONResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {
+                            "code": -32700,
+                            "message": f"Parse error: {str(e)}"
+                        }
+                    },
+                    status_code=400
+                )
+    
+    # Create Starlette app with MCP-compatible routes
+    starlette_app = Starlette(routes=[
+        Route("/sse", SSEEndpoint),
+        Route("/messages", MessageEndpoint, methods=["POST"]),
+    ])
+    
+    # Run with uvicorn using specified host/port
+    import uvicorn
+    config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
+    uvicorn_server = uvicorn.Server(config)
+    await uvicorn_server.serve()
+
+
+# Tool functions that will be used by both stdio and FastMCP
+async def execute_sql_query(query: str) -> str:
+    """Execute SQL query on available datasets"""
+    try:
+        if not data_server.conn:
+            await data_server.initialize()
+            
+        # Execute the query
+        result = data_server.conn.execute(query).fetchdf()
+        
+        # Format the result as a string
+        if result.empty:
+            return "Query executed successfully but returned no results."
+        else:
+            # Convert to string with a reasonable limit
+            if len(result) > 100:
+                result_str = result.head(100).to_string(index=False)
+                result_str += f"\n\n... (showing first 100 of {len(result)} rows)"
+            else:
+                result_str = result.to_string(index=False)
+            
+            return result_str
+            
+    except Exception as e:
+        return f"Error executing query: {str(e)}"
+
+
+async def list_available_tables() -> str:
+    """List all available tables and their schemas"""
+    try:
+        if not data_server.conn:
+            await data_server.initialize()
+            
+        # Get list of tables
+        tables = data_server.conn.execute("SHOW TABLES").fetchdf()
+        
+        if tables.empty:
+            return "No tables available in the database."
+        
+        response_text = "Available tables and their schemas:\n\n"
+        
+        for table_name in tables['name']:
+            # Get table schema
+            schema = data_server.conn.execute(f"DESCRIBE {table_name}").fetchdf()
+            
+            response_text += f"**{table_name}**\n"
+            response_text += schema.to_string(index=False)
+            response_text += "\n\n"
+            
+        return response_text
+        
+    except Exception as e:
+        return f"Error listing tables: {str(e)}"

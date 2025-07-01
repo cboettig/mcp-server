@@ -25,5 +25,5 @@ RUN uv sync --frozen --no-dev
 # Expose port (if needed for future HTTP interface)
 EXPOSE 8000
 
-# Set the default command to run the MCP server
-CMD ["uv", "run", "python", "-m", "data_query_server"]
+# Set the default command to run the MCP server in SSE mode for network access
+CMD ["uv", "run", "python", "-m", "data_query_server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
