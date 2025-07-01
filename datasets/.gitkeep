@@ -1,0 +1,6 @@
+# This directory contains additional dataset files
+# Place CSV files here to load into the DuckDB database
+
+# Example: sales_extended.csv, customer_demographics.csv, etc.
+
+datasets/

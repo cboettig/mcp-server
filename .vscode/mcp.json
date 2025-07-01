@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "data-query-server": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "-m", "data_query_server"]
+    }
+  }
+}

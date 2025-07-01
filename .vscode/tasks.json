@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Data Query Server",
+			"type": "shell",
+			"command": "uv",
+			"args": [
+				"run",
+				"python",
+				"-m",
+				"data_query_server"
+			],
+			"group": "build",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

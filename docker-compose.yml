@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  data-query-server:
+    build: .
+    container_name: mcp-data-query-server
+    volumes:
+      - ./data:/app/data
+      - ./datasets:/app/datasets:ro  # Mount external datasets directory
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    # For stdio MCP server, we don't need to expose ports
+    # But we can add them for future HTTP interface
+    # ports:
+    #   - "8000:8000"
